@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoSentia — Literature support screening for bio-inspired claims</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap">
+    <h1>EcoSentia</h1>
+    <p class="tagline">Lexical support screening for bio-inspired design claims</p>
+    <p class="scope">
+      This tool measures how far a claim's vocabulary co-occurs with the vocabulary of
+      published abstracts. It does not assess whether a claim is true. Every result
+      requires reading of the underlying sources before it is used.
+    </p>
+  </div>
+</header>
+
+<nav class="steps wrap" aria-label="Progress">
+  <ol>
+    <li data-step="1" class="active"><span>1</span> State the claim</li>
+    <li data-step="2"><span>2</span> Review the query</li>
+    <li data-step="3"><span>3</span> Read the result</li>
+  </ol>
+</nav>
+
+<main class="wrap">
+
+  <!-- Step 1 --------------------------------------------------------- -->
+  <section id="step-claim" class="panel" aria-labelledby="h-claim">
+    <h2 id="h-claim">State the claim to be screened</h2>
+
+    <details class="primer" open>
+      <summary>What makes a screenable claim</summary>
+      <p>
+        A screenable claim names a <strong>biological mechanism</strong> and an
+        <strong>asserted outcome</strong>. Without both, the query is either too
+        general to be informative or too narrow for any abstract to satisfy — and
+        both failures look identical to an absence of evidence.
+      </p>
+      <ul class="examples">
+        <li class="good">
+          <span class="tag">Screenable</span>
+          Lotus leaf micro-papillae with wax crystals produce self-cleaning surfaces
+          that reduce facade maintenance water use.
+        </li>
+        <li class="bad">
+          <span class="tag">Too general</span>
+          Nature-inspired materials are more sustainable.
+        </li>
+        <li class="bad">
+          <span class="tag">Two claims</span>
+          Spider silk is stronger than steel and can be produced industrially at
+          low cost. <em>Screen each separately.</em>
+        </li>
+      </ul>
+    </details>
+
+    <form id="claim-form" novalidate>
+      <div class="field">
+        <label for="claim">Claim</label>
+        <textarea id="claim" name="claim" rows="4"
+          placeholder="Name the mechanism and the outcome it is said to produce."
+          required></textarea>
+        <div class="row-between">
+          <p class="hint" id="claim-hint"></p>
+          <p class="counter"><span id="claim-count">0</span> characters</p>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="field">
+          <label for="preset">Domain preset</label>
+          <select id="preset" name="preset" required></select>
+          <p class="hint" id="preset-hint"></p>
+        </div>
+        <div class="field">
+          <label for="source">Index</label>
+          <select id="source" name="source">
+            <option value="both" selected>PubMed and OpenAlex</option>
+            <option value="pubmed">PubMed only</option>
+            <option value="openalex">OpenAlex only</option>
+          </select>
+          <p class="hint">
+            Coverage differs. A claim absent from one index may be present in the other.
+          </p>
+        </div>
+        <div class="field">
+          <label for="limit">Records to retrieve</label>
+          <input id="limit" name="limit" type="number" min="5" max="100" value="40">
+          <p class="hint">More records widen coverage; they do not raise confidence.</p>
+        </div>
+      </div>
+
+      <fieldset class="field lenses">
+        <legend>Evaluation lenses</legend>
+        <p class="hint">
+          Each lens asks a separate question of the literature. Deselecting one removes
+          that question from the result; it does not resolve it.
+        </p>
+        <div id="lens-list" class="lens-grid"></div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="btn-plan">Build query</button>
+        <p class="inline-note">The query is shown for your approval before it runs.</p>
+      </div>
+    </form>
+  </section>
+
+  <!-- Step 2 --------------------------------------------------------- -->
+  <section id="step-query" class="panel" hidden aria-labelledby="h-query">
+    <h2 id="h-query">Review the query before it runs</h2>
+    <p class="lede">
+      This is the exact expression that will be sent to the index. If it does not
+      represent your claim, go back and restate the claim. A query that misses the
+      point returns an empty result, and an empty result is easily misread as evidence
+      that the claim is unsupported.
+    </p>
+
+    <div id="plan-warnings"></div>
+
+    <div class="query-box">
+      <h3>Boolean expression</h3>
+      <pre id="query-canonical"></pre>
+    </div>
+
+    <div class="grid-3">
+      <div class="term-box">
+        <h4>Domain anchors</h4>
+        <p class="hint">Constrain the search to the selected domain.</p>
+        <ul id="query-anchors" class="chips"></ul>
+      </div>
+      <div class="term-box">
+        <h4>Claim terms</h4>
+        <p class="hint">Extracted from your wording. Vocabulary the literature uses differently will not match.</p>
+        <ul id="query-terms" class="chips"></ul>
+      </div>
+      <div class="term-box">
+        <h4>Excluded</h4>
+        <p class="hint">Terms removed to suppress known off-topic results.</p>
+        <ul id="query-excluded" class="chips muted"></ul>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button type="button" class="secondary" id="btn-back">Revise the claim</button>
+      <button type="button" class="primary" id="btn-scan">Run the scan</button>
+    </div>
+  </section>
+
+  <!-- Step 3 --------------------------------------------------------- -->
+  <section id="step-result" class="panel" hidden aria-labelledby="h-result">
+    <div id="result-body" aria-live="polite"></div>
+  </section>
+
+  <div id="status" class="status" hidden aria-live="polite"></div>
+
+  <!-- Audit ---------------------------------------------------------- -->
+  <section class="panel audit" aria-labelledby="h-audit">
+    <h2 id="h-audit">Audit trail</h2>
+    <p class="lede">
+      Every scan is written to an append-only, hash-chained log. Verification
+      recomputes each digest, so a trail cannot vouch for itself.
+    </p>
+    <div class="actions">
+      <button type="button" class="secondary" id="btn-verify">Verify chain integrity</button>
+      <button type="button" class="secondary" id="btn-recent">Show recent scans</button>
+    </div>
+    <div id="audit-out"></div>
+  </section>
+
+</main>
+
+<footer class="footer wrap">
+  <p>
+    EcoSentia is a screening instrument. It reports lexical co-occurrence and flags
+    patterns that commonly precede over-extrapolation. It does not verify claims,
+    assess study quality, or replace domain expertise.
+  </p>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
