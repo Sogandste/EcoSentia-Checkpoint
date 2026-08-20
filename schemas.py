@@ -1,8 +1,8 @@
-"""Data contracts shared by the service layer, the scoring layer and the client.
+"""Data contracts shared by the service, retrieval, scoring, and client layers.
 
-Every field that crosses a process boundary is declared here. Modules must not
-exchange bare dictionaries: a typed contract is what makes a field rename fail
-loudly at import time instead of silently producing an empty panel.
+Every field that crosses a process boundary is declared here. Typed contracts
+make incompatible field changes fail explicitly instead of silently producing
+incomplete results.
 """
 
 from __future__ import annotations
@@ -11,7 +11,42 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-SUPPORT_LEVELS: tuple = ("none", "limited", "indirect", "moderate", "direct")
+
+SUPPORT_LEVELS: tuple[str, ...] = (
+    "none",
+    "limited",
+    "indirect",
+    "moderate",
+    "direct",
+)
+
+MIN_CLAIM_LENGTH = 20
+MAX_CLAIM_LENGTH = 2000
+
+VALID_SOURCES: tuple[str, ...] = (
+    "pubmed",
+    "openalex",
+    "both",
+)
+
+
+def normalise_source(value: str) -> str:
+    """Return the canonical source key used by the retrieval layer."""
+
+    source = (value or "both").strip().lower()
+
+    aliases = {
+        "all": "both",
+        "combined": "both",
+        "ncbi": "pubmed",
+        "pub-med": "pubmed",
+        "pub_med": "pubmed",
+        "open-alex": "openalex",
+        "open_alex": "openalex",
+    }
+
+    source = aliases.get(source, source)
+    return source if source in VALID_SOURCES else "both"
 
 
 class Record(BaseModel):
@@ -28,27 +63,56 @@ class Record(BaseModel):
     score: float = 0.0
     matched_terms: List[str] = Field(default_factory=list)
 
+    @field_validator("source")
+    @classmethod
+    def validate_record_source(cls, value: str) -> str:
+        source = (value or "").strip().lower()
+
+        aliases = {
+            "ncbi": "pubmed",
+            "pub-med": "pubmed",
+            "pub_med": "pubmed",
+            "open-alex": "openalex",
+            "open_alex": "openalex",
+        }
+
+        return aliases.get(source, source)
+
+    @field_validator("identifier", "title", "journal", "doi", "url")
+    @classmethod
+    def strip_record_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("abstract")
+    @classmethod
+    def normalise_abstract(cls, value: str) -> str:
+        return " ".join((value or "").split())
+
 
 class BiasFinding(BaseModel):
-    """One deterministic translation-risk pattern detected in the claim text."""
+    """One deterministic translation-risk pattern detected in record text."""
 
     bias: str
     explanation: str
     trigger: str
     severity: str = "moderate"
 
+    @field_validator("bias", "explanation", "trigger", "severity")
+    @classmethod
+    def strip_bias_text(cls, value: str) -> str:
+        return value.strip()
+
 
 class ScanRequest(BaseModel):
-    """Single request object used by every /evidence/* endpoint.
+    """One evidence-scan request shared across service endpoints."""
 
-    A single request shape keeps the four endpoints interchangeable from the
-    client's point of view; unused fields are ignored rather than rejected.
-    """
-
-    claim: str
+    claim: str = Field(
+        min_length=MIN_CLAIM_LENGTH,
+        max_length=MAX_CLAIM_LENGTH,
+    )
     lens: str = ""
     preset: str = "fog"
-    source: str = "combined"
+    source: str = "both"
     max_results: int = 15
     query_text: Optional[str] = None
     biological_model: str = ""
@@ -59,12 +123,39 @@ class ScanRequest(BaseModel):
     session_id: str = ""
     project: str = ""
 
-    @field_validator("claim")
+    @field_validator("claim", mode="before")
     @classmethod
-    def claim_must_not_be_blank(cls, value: str) -> str:
-        if not value or not value.strip():
-            raise ValueError("claim must not be empty")
-        return value.strip()
+    def normalise_claim(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @field_validator(
+        "lens",
+        "preset",
+        "biological_model",
+        "target_function",
+        "application_context",
+        "mechanism_keywords",
+        "exclude_terms",
+        "session_id",
+        "project",
+        mode="before",
+    )
+    @classmethod
+    def normalise_optional_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
+    @field_validator("query_text", mode="before")
+    @classmethod
+    def normalise_query_text(cls, value: Any) -> Optional[str]:
+        if value is None:
+            return None
+
+        text = str(value).strip()
+        return text or None
 
     @field_validator("max_results")
     @classmethod
@@ -73,13 +164,13 @@ class ScanRequest(BaseModel):
 
     @field_validator("source")
     @classmethod
-    def normalise_source(cls, value: str) -> str:
-        allowed = {"pubmed", "crossref", "combined"}
-        lowered = (value or "combined").strip().lower()
-        return lowered if lowered in allowed else "combined"
+    def validate_source(cls, value: str) -> str:
+        return normalise_source(value)
 
 
 class RefineResponse(BaseModel):
+    """Structured query-refinement response."""
+
     refined_query: str
     facets: Dict[str, List[str]]
     anchors_used: List[str]
@@ -90,9 +181,8 @@ class RefineResponse(BaseModel):
 class LensResult(BaseModel):
     """Outcome of one lens applied to one claim.
 
-    `scored` is False for judgement-only lenses. When it is False, both
-    `support_level` and `support_score` are None by contract, and any consumer
-    that renders a support bar must branch on `scored` before reading them.
+    When ``scored`` is false, support fields may remain null because the lens
+    requires qualitative or expert judgement rather than lexical scoring.
     """
 
     scan_id: str
@@ -117,13 +207,18 @@ class LensResult(BaseModel):
 
     @field_validator("support_level")
     @classmethod
-    def support_level_must_be_known(cls, value: Optional[str]) -> Optional[str]:
+    def support_level_must_be_known(
+        cls,
+        value: Optional[str],
+    ) -> Optional[str]:
         if value is not None and value not in SUPPORT_LEVELS:
             raise ValueError(f"unknown support level: {value}")
         return value
 
 
 class MatrixResponse(BaseModel):
+    """Collection of lens results produced for one claim."""
+
     claim: str
     preset: str
     query_text: str
@@ -132,12 +227,7 @@ class MatrixResponse(BaseModel):
 
 
 class PromptBundle(BaseModel):
-    """Evidence-conditioned prompts for downstream manual use.
-
-    The prompts embed the retrieved evidence state so that the operator's
-    downstream reasoning is anchored to what was actually found, rather than to
-    an unstated impression of the literature.
-    """
+    """Evidence-conditioned prompts for downstream manual use."""
 
     scan_id: str
     lens: str
@@ -151,20 +241,43 @@ class PromptBundle(BaseModel):
     look_for: List[str] = Field(default_factory=list)
     detected_biases: List[BiasFinding] = Field(default_factory=list)
 
+    @field_validator("support_level")
+    @classmethod
+    def prompt_support_level_must_be_known(
+        cls,
+        value: Optional[str],
+    ) -> Optional[str]:
+        if value is not None and value not in SUPPORT_LEVELS:
+            raise ValueError(f"unknown support level: {value}")
+        return value
+
 
 class FeedbackRequest(BaseModel):
+    """Expert or operator feedback submitted for a completed scan."""
+
     human_agree: bool
     notes: str = ""
     reviewer: str = ""
 
+    @field_validator("notes", "reviewer", mode="before")
+    @classmethod
+    def strip_feedback_text(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        return str(value).strip()
+
 
 class FeedbackAck(BaseModel):
+    """Acknowledgement returned after feedback persistence."""
+
     scan_id: str
     recorded: bool
     message: str
 
 
 class LensInfo(BaseModel):
+    """Public metadata describing one evaluation lens."""
+
     key: str
     label: str
     scored: bool
@@ -175,18 +288,24 @@ class LensInfo(BaseModel):
 
 
 class LensCatalog(BaseModel):
+    """Public catalogue of lenses, presets, and support levels."""
+
     lenses: List[LensInfo]
     presets: List[str]
     support_levels: List[str]
 
 
 class SourceHealth(BaseModel):
+    """Connectivity state for one bibliographic source."""
+
     name: str
     reachable: bool
     detail: str = ""
 
 
 class HealthResponse(BaseModel):
+    """Service health and source-connectivity response."""
+
     status: str
     version: str
     lens_count: int
@@ -194,6 +313,8 @@ class HealthResponse(BaseModel):
 
 
 class AuditSummary(BaseModel):
+    """Aggregate audit and reviewer-agreement statistics."""
+
     total_scans: int
     total_feedback: int
     agreement_rate: Optional[float]
