@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EcoSentia — literature scan with declared limits</title>
+<style>
+:root{
+  --bg:#fbfbf9; --panel:#fff; --line:#dcdcd6; --ink:#1c1c1a; --muted:#5f5f58;
+  --flag:#8a3d2e; --note:#7a6420; --blind:#3f4a5c; --ok:#2f5d3f;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.55 "Iowan Old Style",Georgia,serif;}
+.wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}
+h1{font-size:23px;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 10px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+h3{font-size:14px;margin:14px 0 6px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  padding:18px;margin-bottom:16px}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:5px}
+textarea,select,input[type=number]{width:100%;padding:9px;border:1px solid var(--line);
+  border-radius:4px;font:inherit;font-size:14px;background:#fff}
+textarea{min-height:80px;resize:vertical}
+.row{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+.row>div{flex:1;min-width:170px}
+button{font:inherit;font-size:14px;padding:9px 18px;border-radius:4px;cursor:pointer;
+  border:1px solid var(--ink);background:var(--ink);color:#fff}
+button.ghost{background:#fff;color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.lenses{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;margin-top:8px}
+.lens{border:1px solid var(--line);border-radius:4px;padding:9px;font-size:13px}
+.lens label{display:flex;gap:7px;font-weight:600;margin:0;cursor:pointer}
+.lens p{margin:5px 0 0 20px;color:var(--muted);font-size:12px}
+.badge{display:inline-block;font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+  padding:1px 6px;border-radius:3px;border:1px solid currentColor;margin-left:5px}
+.b-expert{color:var(--flag)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+pre{background:#f3f3ef;border:1px solid var(--line);border-radius:4px;padding:10px;
+  overflow-x:auto;white-space:pre-wrap;word-break:break-word;margin:5px 0 12px}
+.kv{font-size:13px;margin:4px 0;color:var(--muted)}
+.kv b{color:var(--ink)}
+.warn{border-left:3px solid var(--flag);background:#fdf6f4;padding:9px 12px;
+  margin:8px 0;font-size:13px;border-radius:0 4px 4px 0}
+.approve{border:1px solid var(--flag);background:#fdf6f4;border-radius:4px;
+  padding:12px;margin-top:14px;font-size:13px}
+.approve label{display:flex;gap:8px;font-weight:600;margin:0;cursor:pointer;align-items:flex-start}
+.lensres{border:1px solid var(--line);border-left-width:4px;border-radius:4px;
+  padding:12px;margin-bottom:9px}
+.lensres.none{border-left-color:#c9c9c2}
+.lensres.weak{border-left-color:#b8a05a}
+.lensres.moderate{border-left-color:#6f8a4a}
+.lensres.strong{border-left-color:var(--ok)}
+.lensres.open{border-left-color:var(--flag);background:#fdf6f4}
+.lensres h4{margin:0 0 3px;font-size:15px}
+.lensres .q{color:var(--muted);font-size:13px;font-style:italic;margin:0 0 7px}
+.finding{border:1px solid var(--line);border-left-width:4px;border-radius:4px;
+  padding:11px;margin-bottom:8px;font-size:13.5px}
+.finding.flag{border-left-color:var(--flag)}
+.finding.note{border-left-color:var(--note)}
+.finding.not_assessable{border-left-color:var(--blind);background:#f5f6f8}
+.finding b{display:block;margin-bottom:3px}
+.finding .act{margin-top:6px;color:var(--muted);font-size:12.5px}
+.rec{border-bottom:1px solid var(--line);padding:9px 0;font-size:13.5px}
+.rec:last-child{border-bottom:0}
+.rec a{color:#2c4a7c}
+.rec .meta{color:var(--muted);font-size:12px;margin-top:2px}
+.hide{display:none}
+.err{border:1px solid var(--flag);background:#fdf6f4;border-radius:4px;padding:14px;
+  margin-bottom:16px;font-size:14px}
+.foot{color:var(--muted);font-size:12.5px;border-top:1px solid var(--line);
+  padding-top:12px;margin-top:8px}
+.spin{color:var(--muted);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>EcoSentia</h1>
+<p class="sub" id="scope"></p>
+
+<!-- Step 1 -->
+<section class="panel">
+  <h2>1 · Claim</h2>
+  <label for="claim">State the claim in the field's own vocabulary. Quote phrases that must stay together.</label>
+  <textarea id="claim" placeholder='e.g. "extracellular vesicles" from mesenchymal stem cells reduce fibrosis'></textarea>
+  <div class="row">
+    <div><label for="preset">Subject area</label><select id="preset"></select></div>
+    <div><label for="max">Records per source</label>
+      <input type="number" id="max" value="50" min="5" max="100" step="5"></div>
+  </div>
+  <h3>Lenses</h3>
+  <div class="lenses" id="lenses"></div>
+  <div class="row" style="margin-top:16px">
+    <button id="btnPlan">Build query plan</button>
+  </div>
+  <p class="foot">Nothing is sent to PubMed or OpenAlex at this step.</p>
+</section>
+
+<div id="errBox" class="err hide"></div>
+
+<!-- Step 2 -->
+<section class="panel hide" id="planPanel">
+  <h2>2 · Query plan — review before running</h2>
+  <div id="planBody"></div>
+  <div class="approve">
+    <label>
+      <input type="checkbox" id="approve">
+      <span>I have read the queries above and the notes on how each source
+      interprets them. I understand the two sources are not directly comparable,
+      and that this scan reports where vocabulary appears, not whether the claim
+      is correct.</span>
+    </label>
+    <div class="row" style="margin-top:12px">
+      <button id="btnScan" disabled>Run scan</button>
+      <button id="btnEdit" class="ghost">Revise claim</button>
+    </div>
+  </div>
+</section>
+
+<div id="busy" class="spin hide">Querying sources…</div>
+
+<!-- Step 3 -->
+<section class="panel hide" id="resPanel">
+  <h2>3 · Result</h2>
+  <div id="resBody"></div>
+</section>
+
+<script src="app.js"></script>
+</div>
+</body>
+</html>
